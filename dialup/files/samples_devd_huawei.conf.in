@@ -1,0 +1,20 @@
+#
+# HUAWEI E1752
+#
+
+notify 100 {
+	match "system" "USB";
+	match "subsystem" "DEVICE";
+	match "type" "ATTACH";
+	match "vendor" "0x12d1";
+	match "product" "0x1446";
+	match "mode" "host";
+	action "/sbin/kldload -n u3g";
+};
+
+attach 100 {
+	match "device-name" "u3g[0-9]+";
+	match "vendor" "0x12d1";
+	match "product" "0x1001";
+	action "%%LIBEXECDIR%%/devd/attach_u3g $ttyname.0 $ttyname.2";
+};

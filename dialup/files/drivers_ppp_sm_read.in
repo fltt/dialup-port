@@ -1,0 +1,86 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 2; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/sm_read "not enough arguments"
+  exit 1
+fi
+
+sm_key="$1"
+device_id="$2"
+
+modem="/dev/modem$device_id"
+if ! test -L "$modem"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/sm_read "\"$modem\" does not exist"
+  exit 1
+fi
+
+hex_key=$(echo -n "$sm_key" | /usr/bin/hexdump -ve '/1 "%02d"')
+
+TEMP_FILE=$(/usr/bin/mktemp)
+
+trap "/bin/rm \"$TEMP_FILE\"" EXIT
+
+exec 3<>"$modem"
+
+/usr/bin/chat TIMEOUT 3 ABORT ERROR '' AT OK-AT-OK-AT-OK ATE1 TIMEOUT 5 OK 'AT+CMGF=1' OK 'AT+CPMS="SM"' OK 'AT+CMGL="ALL"' ECHO ON OK <&3 >&3 2>"$TEMP_FILE"
+result=$?
+msg=
+case "$result" in
+  0) ;;
+  1) msg="bad parameters";;
+  2) msg="program error";;
+  3) msg="timeout";;
+  4) msg="command error";;
+  *) msg="unknown error";;
+esac
+if test -n "$msg"; then
+  /usr/bin/logger -p daemon.warning -t %%PORTNAME%%/ppp/sm_read "could not read SMs: $msg"
+  exit 1
+fi
+
+N=$(/usr/bin/sed -ne "s|^+CMGL: \([^,]*\),[^,]*,\"$sm_key\",.*\$|\\1|p;s|^+CMGL: \([^,]*\),[^,]*,\"$hex_key\",.*\$|\\1|p" "$TEMP_FILE" | /usr/bin/head -n 1)
+if test -z "$N"; then
+  /usr/bin/logger -p daemon.notice -t %%PORTNAME%%/ppp/sm_read "SM not found"
+  exit 2
+fi
+
+/usr/bin/chat TIMEOUT 3 ABORT ERROR '' AT OK-AT-OK-AT-OK ATE1 TIMEOUT 5 OK "AT+CMGR=$N" ECHO ON OK <&3 >&3 2>"$TEMP_FILE"
+result=$?
+
+exec 3<&-
+
+case "$result" in
+  0) ;;
+  1) msg="bad parameters";;
+  2) msg="program error";;
+  3) msg="timeout";;
+  4) msg="command error";;
+  *) msg="unknown error";;
+esac
+if test -n "$msg"; then
+  /usr/bin/logger -p daemon.warning -t %%PORTNAME%%/ppp/sm_read "could not read SM number $N: $msg"
+  exit 1
+fi
+
+/usr/bin/sed -ne '/^$/d;/^OK$/d;/^+CMGR: /,$p' "$TEMP_FILE" | /usr/bin/sed '/^+CMGR: /d'

@@ -1,0 +1,101 @@
+default:
+  ident yourhostname-ppp
+  set log CCP Chat Connect DNS IPCP LCP LQM TUN
+  # The following must be the same file specified in the PPP_CONTROL_FILE
+  # variable of the ppp driver's config file.
+  set server "/var/run/ppp/pppctl%d" "" 0177
+  allow user yourusername
+  allow mode background
+
+# Do not delete the following entry.
+set-modem-0:
+  set device /dev/modem0
+
+# Do not delete the following entry.
+set-modem-1:
+  set device /dev/modem1
+
+# Do not delete the following entry.
+set-modem-2:
+  set device /dev/modem2
+
+# Do not delete the following entry.
+set-modem-3:
+  set device /dev/modem3
+
+umts:
+  # This is the configuration I use for my ISPs: tweak it to suit your ISP
+  # and/or your preferences.
+  # For example, you may be willing to enable IPv6 if your ISP support it.
+  rename modem
+  set speed 921600
+  set cd 5!
+  set ctsrts on
+  set dial "ABORT COMMAND\\sNOT\\sSUPPORT \
+            ABORT ERROR \
+            TIMEOUT 2 \
+            \"\" AT \
+            OK-AT-OK AT&FE0V1X1&D2&C1S0=0 \
+            OK AT+CFUN=1 \
+            OK AT+CMEE=2 \
+            OK AT+CSQ \
+            OK AT+CGDCONT=1,\\\"IP\\\",\\\"\\T\\\",\\\"\\\",2,3 \
+            ABORT BUSY \
+            ABORT ERR \
+            ABORT NO\\sDIAL \
+            ABORT NO\\sCARRIER \
+            TIMEOUT 20 \
+            OK ATD*99# \
+            CONNECT"
+  set redial 5 1
+  set reconnect 2 3
+  set timeout 0
+  accept deflate mppe pred1 vjcomp
+  disable deflate mppe pred1 vjcomp
+  set echoperiod 10
+  enable echo
+  disable ipv6cp
+  set ifaddr 0.0.0.0/0 192.168.57.127/24 255.255.255.255 0.0.0.0
+  set urgent tcp 21 22 23
+  set urgent udp 53
+  enable proxy
+  resolv readonly
+  deny dns
+  nat enable yes
+  nat deny_incoming no
+  nat same_ports no
+  nat target default
+  nat use_sockets yes
+  nat unregistered_only yes
+
+# Same name as the one used in ppp.linkup
+link-up:
+  set log -LCP
+  add default HISADDR
+
+# Same name as the one used in ppp.linkdown
+link-down:
+  set log +LCP
+
+# Do not delete the following entry.
+disable-dns:
+  disable dns
+
+# Do not delete the following entry.
+enable-dns:
+  enable dns
+
+# Same profile name as specified in %%ETCDIR%%/profiles
+isp1:
+  load umts
+  set phone web.isp1.net
+
+# Same profile name as specified in %%ETCDIR%%/profiles
+isp2:
+  load umts
+  set phone internet.isp2
+
+# Same profile name as specified in %%ETCDIR%%/profiles
+isp3:
+  load umts
+  set phone isp3.com

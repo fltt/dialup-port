@@ -1,0 +1,74 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 1; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/attach_u3g "not enough arguments"
+  exit 1
+fi
+
+ttym="/dev/cua$1"
+if test -n "$2"; then
+  ttyt="/dev/cua$2"
+fi
+if test -n "$3"; then
+  sleep="$3"
+fi
+
+if ! test -c "$ttym"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/attach_u3g "device \"$ttym\" does not exist"
+  exit 1
+fi
+
+if test -n "$ttyt" && ! test -c "$ttyt"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/attach_u3g "device \"$ttyt\" does not exist"
+  exit 1
+fi
+
+if /usr/bin/readlink /dev/modem* | /usr/bin/fgrep -q "$ttym"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/attach_u3g "\"$ttym\" already linked"
+  exit 1
+fi
+
+if test -n "$ttyt" && /usr/bin/readlink /dev/terminal* | /usr/bin/fgrep -q "$ttyt"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/attach_u3g "\"$ttyt\" already linked"
+  exit 1
+fi
+
+cd $(/usr/bin/dirname "$0")
+
+device_id=0
+while test -e "/dev/modem$device_id" || test -e "/dev/terminal$device_id"; do
+  device_id=$((device_id+1))
+done
+
+link_file="/dev/modem$device_id"
+/bin/ln -s "$ttym" "$link_file" && /usr/bin/logger -p daemon.info -t %%PORTNAME%%/attach_u3g "$link_file -> $ttym"
+
+if test -n "$ttyt"; then
+  link_file="/dev/terminal$device_id"
+  /bin/ln -s "$ttyt" "$link_file" && /usr/bin/logger -p daemon.info -t %%PORTNAME%%/attach_u3g "$link_file -> $ttyt"
+fi
+
+test -z "$sleep" || /bin/sleep $sleep
+
+./enable_sim ppp "$device_id"

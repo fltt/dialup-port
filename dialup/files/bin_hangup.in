@@ -1,0 +1,57 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+SELECT_TEMP_FILE=$(/usr/bin/mktemp)
+
+trap "rm -f \"$SELECT_TEMP_FILE\"" EXIT
+
+cd "%%LIBEXECDIR%%"
+
+. ./config
+
+if ! ./dial/select_sim "$ACTIVE_SIM_FILE" "$SELECT_TEMP_FILE"; then
+  /usr/bin/logger -s -p user.notice -t %%PORTNAME%%/hangup "SIM selection failed"
+  exit 1
+fi
+
+iccid=$(/bin/cat "$SELECT_TEMP_FILE")
+
+exec 3<"$SIM_INFO_FILE"
+
+while read id sim_profile driver args  <&3; do
+  test "$id" = "$iccid" && break
+done
+
+exec 3<&-
+
+if test "$id" != "$iccid"; then
+  /usr/bin/logger -s -p user.crit -t %%PORTNAME%%/hangup "ICCID \"$iccid\" not found"
+  exit 1
+fi
+
+iccid_pid_file=$(printf "$MONITOR_PID_FILE" "$iccid")
+
+if ! "./drivers/$driver/disconnect" "$iccid_pid_file" $args; then
+  /usr/bin/logger -s -p user.error -t %%PORTNAME%%/hangup "disconnection failed"
+  exit 1
+fi

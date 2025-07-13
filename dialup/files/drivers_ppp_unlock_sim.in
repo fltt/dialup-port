@@ -1,0 +1,51 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 1; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/unlock_sim "not enough arguments"
+  exit 1
+fi
+
+pin="$1"
+device_id="$2"
+
+modem="/dev/modem$device_id"
+if ! test -L "$modem"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/unlock_sim "\"$modem\" does not exist"
+  exit 1
+fi
+
+/usr/bin/chat TIMEOUT 5 ABORT 'CPIN: READY' ABORT ERROR '' AT OK 'AT+CPIN?' OK "AT+CPIN=\"$pin\"" OK <"$modem" >"$modem"
+result=$?
+msg="unknown error"
+case "$result" in
+  0) exit 0;;
+  1) msg="bad parameters";;
+  2) msg="program error";;
+  3) msg="timeout";;
+  4) /usr/bin/logger -p daemon.info -t %%PORTNAME%%/ppp/unlock_sim "no PIN needed"
+     exit 0;;
+  5) msg="invalid PIN";;
+esac
+/usr/bin/logger -p daemon.warning -t %%PORTNAME%%/ppp/unlock_sim "$msg"
+exit 1

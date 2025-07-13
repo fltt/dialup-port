@@ -1,0 +1,4 @@
+# One line per profile, containing profile_name, monthly_quota,
+# quota_renew_day, auto_disconnect and enable_DNS.
+# The following is an example:
+100G_promo 107374182400 15 true false

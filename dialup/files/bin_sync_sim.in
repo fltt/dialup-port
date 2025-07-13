@@ -1,0 +1,113 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+cd "%%LIBEXECDIR%%"
+
+. ./config
+
+if ! test -s "$SIM_INFO_FILE"; then
+  /usr/bin/logger -s -p user.info -t %%PORTNAME%%/sync_sim "no SIM available"
+  exit 0
+fi
+
+TEMP_FILE=$(/usr/bin/mktemp)
+trap "/bin/rm \"$TEMP_FILE\"" EXIT
+
+exec 3<"$SIM_INFO_FILE"
+
+while read iccid sim_profile driver args  <&3; do
+  "./drivers/$driver/sm_read" "$SM_KEY" $args >"$TEMP_FILE"
+  result=$?
+  case "$result" in
+    0) read profile period_by_sm rx_bytes_by_sm tx_bytes_by_sm <"$TEMP_FILE"
+       if test "$profile" != "$sim_profile"; then
+         /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/sync_sim "accounting SM profile ($profile) from SIM $iccid is different from the expected one ($sim_profile)"
+         continue
+       fi
+
+       consumed_by_sm=$((rx_bytes_by_sm + tx_bytes_by_sm)) ;;
+    2) /usr/bin/logger -s -p user.notice -t %%PORTNAME%%/sync_sim "SIM $iccid has no accounting SM"
+       period_by_sm=0
+       rx_bytes_by_sm=0
+       tx_bytes_by_sm=0
+       consumed_by_sm=0 ;;
+    *) /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/sync_sim "could not read accounting SM from SIM $iccid"
+       continue ;;
+  esac
+
+  iccid_account_file=$(printf "$ACCOUNT_FILE" "$iccid")
+  if test -r "$iccid_account_file"; then
+    read profile period_by_file rx_bytes_by_file tx_bytes_by_file <"$iccid_account_file"
+    if test "$profile" != "$sim_profile"; then
+      /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/sync_sim "accounting file profile ($profile) for SIM $iccid is different from the expected one ($sim_profile)"
+      continue
+    fi
+
+    consumed_by_file=$((rx_bytes_by_file + tx_bytes_by_file))
+  else
+    if test -f "$iccid_account_file"; then
+      /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/sync_sim "could not read accounting file \"$iccid_account_file\""
+      continue
+    fi
+
+    /usr/bin/logger -s -p user.notice -t %%PORTNAME%%/sync_sim "accounting file for SIM $iccid not found"
+    period_by_file=0
+    rx_bytes_by_file=0
+    tx_bytes_by_file=0
+    consumed_by_file=0
+  fi
+
+  if test $period_by_sm -eq $period_by_file; then
+    period="$period_by_sm"
+    if test $consumed_by_sm -gt $consumed_by_file; then
+      rx_bytes="$rx_bytes_by_sm"
+      tx_bytes="$tx_bytes_by_sm"
+    else
+      rx_bytes="$rx_bytes_by_file"
+      tx_bytes="$tx_bytes_by_file"
+    fi
+  elif test $period_by_sm -gt $period_by_file; then
+    period="$period_by_sm"
+    rx_bytes="$rx_bytes_by_sm"
+    tx_bytes="$tx_bytes_by_sm"
+  else
+    period="$period_by_file"
+    rx_bytes="$rx_bytes_by_file"
+    tx_bytes="$tx_bytes_by_file"
+  fi
+
+  if test "$period:$rx_bytes:$tx_bytes" != "$period_by_file:$rx_bytes_by_file:$tx_bytes_by_file"; then
+    echo "$sim_profile $period $rx_bytes $tx_bytes" >"$iccid_account_file"
+    /usr/bin/logger -s -p user.info -t %%PORTNAME%%/sync_sim "accounting file for SIM $iccid updated"
+  fi
+
+  if test "$period:$rx_bytes:$tx_bytes" != "$period_by_sm:$rx_bytes_by_sm:$tx_bytes_by_sm"; then
+    if "./drivers/$driver/sm_write" "$SM_KEY" "$sim_profile $period $rx_bytes $tx_bytes" $args; then
+      /usr/bin/logger -s -p user.info -t %%PORTNAME%%/sync_sim "accounting SM from SIM $iccid updated"
+    else
+      /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/sync_sim "could not update accounting SM from SIM $iccid"
+    fi
+  fi
+done
+
+exec 3<&-

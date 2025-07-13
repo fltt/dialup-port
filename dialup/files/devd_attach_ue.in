@@ -1,0 +1,131 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 1; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/attach_ue "not enough arguments"
+  exit 1
+fi
+
+command="$1"
+
+if test "$command" != nolock; then
+  cd $(/usr/bin/dirname "$0")
+
+  . ../config
+
+  /usr/bin/lockf -s -t $DEVICE_STALE_TIMEOUT "$UE_LOCK_FILE" "$0" nolock "$@"
+  result=$?
+  if test $result -ge 64; then
+    # See sysexits(3) for the meaning of $result
+    /usr/bin/logger -p daemon.err -t %%PORTNAME%%/attach_ue "could not acquire lock ($result)"
+    exit 1
+  fi
+
+  exit $result
+fi
+
+shift 1
+
+command="$1"
+case "$command" in
+  trigger) ;;
+  device)
+    if test -z "$2"; then
+      /usr/bin/logger -p daemon.err -t %%PORTNAME%%/attach_ue "missing device name"
+      exit 1
+    fi
+
+    device="$2" ;;
+  *)
+    /usr/bin/logger -p daemon.err -t %%PORTNAME%%/attach_ue "invalid command \"$command\""
+    exit 1 ;;
+esac
+
+cd $(/usr/bin/dirname "$0")
+
+. ../config
+
+if test -e "$UE_DEVICE_FILE"; then
+  now=$(/bin/date -v -${DEVICE_STALE_TIMEOUT}S +%s)
+  ts=$(/usr/bin/stat -f "%m" "$UE_DEVICE_FILE")
+  test $ts -gt $now || /bin/rm "$UE_DEVICE_FILE"
+fi
+
+if test "$command" = trigger; then
+  if test -s "$UE_DEVICE_FILE"; then
+    exec 3<"$UE_DEVICE_FILE"
+
+    while read device <&3; do
+      (i=0
+       host=
+       while test $i -lt $DHCP_TIMEOUT && test -z "$host"; do
+         test -z "$DHCP_SLEEP" || /bin/sleep $DHCP_SLEEP
+         i=$((i+1))
+         if test "/var/db/dhclient.leases.$device" -nt "$UE_DEVICE_FILE"; then
+           host=$(/usr/bin/sed -ne 's,^ *option  *routers  *\([^ ;]*\) *; *$,\1,p' "/var/db/dhclient.leases.$device" | /usr/bin/tail -n 1)
+         fi
+       done
+
+       if test -z "$host"; then
+         /usr/bin/logger -p daemon.warning -t %%PORTNAME%%/attach_ue "device $device gateway didn't show up"
+       else
+         /usr/bin/logger -p daemon.info -t %%PORTNAME%%/attach_ue "host found: $host"
+         ./enable_sim dlink "$device" "$host"
+       fi) &
+    done
+
+    exec 3<&-
+
+    wait
+  fi
+  : >"$UE_DEVICE_FILE"
+else
+  /usr/sbin/service dhclient quietstart "$device"
+
+  if test -e "$UE_DEVICE_FILE"; then
+    if test -s "$UE_DEVICE_FILE"; then
+      # no trigger yet, append device
+      echo "$device" >>"$UE_DEVICE_FILE"
+    else
+      i=0
+      host=
+      while test $i -lt $DHCP_TIMEOUT && test -z "$host"; do
+        test -z "$DHCP_SLEEP" || /bin/sleep $DHCP_SLEEP
+        i=$((i+1))
+        if test "/var/db/dhclient.leases.$device" -nt "$UE_DEVICE_FILE"; then
+          host=$(/usr/bin/sed -ne 's,^ *option  *routers  *\([^ ;]*\) *; *$,\1,p' "/var/db/dhclient.leases.$device" | /usr/bin/tail -n 1)
+        fi
+      done
+
+      if test -z "$host"; then
+        /usr/bin/logger -p daemon.warning -t %%PORTNAME%%/attach_ue "device $device gateway didn't show up"
+      else
+        /usr/bin/logger -p daemon.info -t %%PORTNAME%%/attach_ue "host found: $host"
+        ./enable_sim dlink "$device" "$host"
+      fi
+      : >"$UE_DEVICE_FILE"
+    fi
+  else
+    echo "$device" >"$UE_DEVICE_FILE"
+  fi
+fi

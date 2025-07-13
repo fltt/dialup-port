@@ -1,0 +1,50 @@
+Dial-Up Utilities example files
+===============================
+This directory contain sample files for the `linkup` script and the
+"ppp" driver.
+
+Linkup and linkdown scripts
+---------------------------
+The `linkup` example script shows how to write a user `linkup` script:
+it should contain commands that the user can run.
+If the commands must be run as `root`, put them in the system's `linkup`
+(and `linkdown`) scripts.
+
+Copy it into $HOME/.config/%%PORTNAME%%/ and edit it.
+If you need to run commands when the connection is torn down, put them
+into a `linkdown` script.
+
+NOTE: These files must have the executable permission set.
+
+The ppp driver
+--------------
+To use the "ppp" driver, ppp(8) must be aptly configured.
+
+Three example files are provided: ppp.conf, ppp.linkup and ppp.linkdown.
+Copy them into /etc/ppp, then edit them.
+
+NOTE: The files should be owned by root:network and have mode 640
+      (readable and writeable by root, readable only by network group
+      members).
+
+The following constraints must be satisfied in order for the "ppp"
+driver to work.
+
+ppp.conf must contain the following entries:
+
+- set-modem-N, for a few values of N, starting from 0: how many entries
+  create, depends on how many network adapter devices you intend to use
+  at the same time
+- disable-dns and enable-dns: you shouldn't modify nor delete these
+  entries
+
+Moreover, for each SIM profile defined in %%ETCDIR%%/profiles, a
+corresponding configuration entry must be present in ppp.conf,
+ppp.linkup and ppp.linkdown.
+
+NOTE: If you don't need to do anything special when the connection is
+      brought up or torn down, you can delete both ppp.linkup and
+      ppp.linkdown.
+
+Apart form these constraints, anything said in the ppp(8) man page
+applies.

@@ -1,0 +1,61 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 1; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/get_iccid "not enough arguments"
+  exit 1
+fi
+
+device_id="$1"
+
+modem="/dev/modem$device_id"
+if ! test -L "$modem"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/get_iccid "\"$modem\" does not exist"
+  exit 1
+fi
+
+TEMP_FILE=$(/usr/bin/mktemp)
+
+trap "/bin/rm \"$TEMP_FILE\"" EXIT
+
+/usr/bin/chat -V TIMEOUT 5 ABORT 'COMMAND NOT SUPPORT' ABORT 'ERROR' '' AT OK-AT-OK 'AT+CRSM=176,12258,0,0,10' OK <"$modem" >"$modem" 2>"$TEMP_FILE"
+result=$?
+
+iccid=$(/usr/bin/sed -ne 's;^\+CRSM: [^,]*,[^,]*,"\([^"]*\)"$;\1;p' "$TEMP_FILE" | /usr/bin/sed -e 's,\(.\)\(.\),\2\1,g;s,F$,,')
+if test -n "$iccid"; then
+  echo "$iccid"
+  exit 0
+fi
+
+msg="unknown error"
+
+case "$result" in
+  1) msg="bad parameters";;
+  2) msg="program error";;
+  3) msg="timeout";;
+  4) msg="command not supported";;
+  5) msg="command error";;
+esac
+
+/usr/bin/logger -p daemon.warning -t %%PORTNAME%%/ppp/get_iccid "$msg"
+exit 1

@@ -1,0 +1,3 @@
+# One line per SIM, containing ICCID, PIN and profile_name.
+# The following is an example:
+89390100002123456789 1234 100G_promo

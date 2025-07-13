@@ -1,0 +1,16 @@
+The Dial-Up Utilities is a collection of scripts and configuration
+files meant to manage GSM/UMTS/LTE (a.k.a. 2G/3G/4G) network adapters.
+These devices are usually removable USB dongles/sticks with a (U)SIM
+(Universal Subscriber Identity Module) slot.
+
+The Dial-Up Utilities provide the following features:
+
+* register/configure the network adapter when plugged
+* unlock the SIM
+* start and stop the connection to the mobile network
+* update resolver DNS servers
+* keep account of the available network traffic
+* store/retrieve accounting of network traffic in/from the SIM's memory
+* manage multiple network adapters
+* automatically stop the connection when the montly traffic quota is
+  over

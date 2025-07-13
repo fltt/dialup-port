@@ -1,0 +1,68 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 2; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/disconnect "not enough arguments"
+  exit 1
+fi
+
+pid_file="$1"
+device_id="$2"
+
+cd $(/usr/bin/dirname "$0")
+
+. ./config
+
+if ! test -r "$DEVICE_UNIT_FILE"; then
+  test -e "$DEVICE_UNIT_FILE" || exit 0
+
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/disconnect "cannot read unit file \"$DEVICE_UNIT_FILE\""
+  exit 1
+fi
+
+unit=$(/usr/bin/sed -ne "s,^$device_id  *\([^ ]*\)\$,\\1,p" "$DEVICE_UNIT_FILE")
+pppctl_file=$(printf "$PPP_CONTROL_FILE" $unit)
+if ! test -w "$pppctl_file"; then
+  if test -e "$pppctl_file"; then
+    /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/disconnect "cannot access PPP control file \"$pppctl_file\""
+    exit 1
+  fi
+
+  /usr/bin/logger -p daemon.warning -t %%PORTNAME%%/ppp/disconnect "PPP control file \"$pppctl_file\" not found"
+  exit 0
+fi
+
+if ! /usr/sbin/pppctl "$pppctl_file" close; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/disconnect "could not disconnect"
+  exit 1
+fi
+
+sleep_pid_file=$(printf "$MONITOR_SLEEP_PID_FILE" $unit)
+exec 3<"$sleep_pid_file" || exit 0
+
+read sleep_pid <&3
+
+exec 3<&-
+
+/bin/rm "$sleep_pid_file" || /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/disconnect "could not delete monitor sleep pid file \"$sleep_pid_file\""
+kill -TERM "$sleep_pid" 2>/dev/null || exit 0

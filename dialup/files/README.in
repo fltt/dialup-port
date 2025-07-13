@@ -1,0 +1,839 @@
+Dial-Up Utilities
+=================
+The *Dial-Up Utilities* is a collection of scripts and configuration
+files meant to manage GSM/UMTS/LTE (a.k.a. 2G/3G/4G) network adapters.
+These devices are usually removable USB dongles/sticks with a (U)SIM
+(Universal Subscriber Identity Module) slot.
+
+Features
+--------
+The *Dial-Up Utilities* provide the following features:
+
+* register/configure the network adapter when plugged
+* unlock the SIM
+* start and stop the connection to the mobile network
+* update resolver DNS servers
+* keep account of the available network traffic
+* store/retrieve accounting of network traffic in/from the SIM's memory
+* manage multiple network adapters
+* automatically stop the connection when the montly traffic quota is
+  over
+
+Introduction
+------------
+Assuming the system and network adapter(s) are configured (see the
+[Configuration section](#configuration)), to start a connection run the
+`dialup` command:
+
+```
+dialup
+```
+
+There's no need to specify any argument and if you do it will be
+ignored.
+
+If one network adapter is available (i.e., was successful registered), a
+connection will be attempted.
+
+If more than one network adapters are available, a menu is shown.
+For each device it will show the ICCID (unique identifier) of the SIM
+and the associated "profile" (more on profiles in the
+[next section](#organisation)).
+If no devices is available, an error is shown.
+
+> **NOTE:** If *X11* is detected, the menu is displayed via `dmenu(1)`,
+> else `dialog(1)` is used.
+
+Once the connection is established, a `monitor` process is started in
+the background and at the same time the system's and user's (optional)
+`linkup` scripts are run.
+The system's `linkup` script is where you set-up the system for the
+Internet.
+For example, I use it to run `resolvconf(8)`, `chronyc(1)` and
+`inadyn(8)`.
+The user's `linkup` script is where you run commands for the user that
+started the connection.
+For example, I use it to run `mpop(1)` to download e-mails.
+
+The `monitor` process will just wait for the connection to terminate.
+
+To stop the connection, run the `hangup` command:
+
+```
+hangup
+```
+
+As for the `dialup` command, any argument will be ignored.
+
+When the connection terminates, whether because you stopped it or
+because of some network error, the `monitor` process will run the
+system's and user's (optional) `linkdown` scripts.
+These `linkdown` scripts are meant to undo whatever was done by the
+`linkup` scripts.
+For example, run `resolvconf -d` or `chronyc offline`.
+
+> **NOTE:** The system's `linkup` and `linkdown` script are run as
+> `root`, while the user's ones are run as the user that executed the
+> `dialup` command.
+
+Next, the `monitor` process will compute the amount of transfered bytes
+and update the "accounting record".
+This record is saved both in a file (in the `/var/db/%%PORTNAME%%`
+directory) and in a SM (Short Message) stored in the SIM's memory.
+
+Most Mobile Network Operator (MNO) plans provide some limited amount of
+network traffic allowance per month.
+The accounting record is used to keep track of the amount of remaining
+available network traffic.
+This information is periodically printed in the log file
+(`/var/log/%%PORTNAME%%.log`, by default) as long as the connection is
+up.
+At the end of the month, the accounting record is automatically reset.
+
+> **NOTE:** The accounting record stores the amount of received and
+> transmitted bytes.
+> The remaining available traffic is computed as the difference between
+> the monthly allowance and the sum of the amounts of received and
+> transmitted bytes.
+
+When the monthly traffic allowance is exhausted, your MNO may do one of
+the following three things:
+
+1. tear-down the connection and block any further access to the network
+   until the start of the next month
+2. let you continue to access the network at a reduced maximum bit-rate
+3. start billing you for every extra-allowance kilo, mega or giga byte
+
+If your MNO do the thing described in point 3, but your are unwilling to
+pay the extra money, an auto-disconnect flag is provided to you to
+automatically drop the connection, should the monthly allowance be
+exhausted.
+
+Now, why is the accounting record stored in the SIM's memory?
+Imagine you want to plug your network adapter into another laptop.
+Then you bring up a new connection and a new accounting record is
+created.
+When the connection is closed, what's going to be stored in the
+accounting record?
+If the system is unaware of any previous connection started elsewhere,
+the accounting record won't be correctly updated and you will get an
+incorrectly reported available network traffic.
+
+Keeping a copy of the accounting record within the SIM allows the
+*Dial-Up Utilities* to read an updated version of the accounting record
+when the network adapter or SIM is used in another laptop.
+
+> **NOTE:** Obviously, this requires the use of the *Dial-Up Utilities*
+> in all the laptops you want to connect from.
+
+The accounting record stored in the SIM is read (compared with the one
+stored in the file) whenever a new connection is started.
+If you want to force a read of the accounting record in the SIM without
+starting a new connection, run the `sync_sim` command:
+
+```
+sync_sim
+```
+
+Again, no argument is required.
+
+> **NOTE:** What the `sync_sim` does is read the accounting records from
+> the file and SIM, compare them, choose the more up-to-date one and
+> update the other, overwriting the file or the SM in the SIM's memory.
+
+This is all there is to know about **using** the *Dial-Up Utilities*.
+Now we'll see how to configure them.
+
+Organisation
+------------
+Before dealing with the configuration, a summary description of the
+*Dial-Up Utilities* is in order.
+
+The scripts described in the [previous section](#introduction) (`dial`,
+`hangup` and `sync_sim`) are the "interface" to the user.
+To do their job they invoke several "helper" scripts (stored in the
+`%%LIBEXECDIR%%/dial` directory).
+
+In turn, the helper scripts, to do thery job, invoke the "driver"
+scripts (stored in the `%%LIBEXECDIR%%/drivers` directory).
+These scripts perform low-level operations whose implementation depends
+on the specific network adapter in use (see the
+[Drivers section](#drivers) for details).
+
+Another group of scripts, the "devd" scripts (stored in the
+`%%LIBEXECDIR%%/devd` directory), configure and register the network
+adapter device when it is plugged.
+
+All these scripts make use of several configuration and data files, the
+most notable of which are:
+
+* the [PINs configuration file](#pins-configuration-file)
+* the [profiles configuration file](#profiles-configuration-file)
+* the *SIM information data file* (`/var/run/%%PORTNAME%%/sim_info`)
+* the *accounting data file* (stored in the `/var/db/%%PORTNAME%%`
+  directory)
+* the *active SIM data file* (`/var/run/%%PORTNAME%%/active_sim`)
+
+The *PINs configuration file* contains, for each SIM, its ICCID, the PIN
+to unlock it and the associated profile.
+
+The *profiles configuration file* contains a list of profiles each
+describing the features of a specific MNO data plan and other options
+(for more information on the PINs and profiles configuration files see
+the [Dial-Up Utilities configuration section](#dial-up-utilities-configuration)).
+
+The configuration files (PINs and profiles) are provided by the user
+according to his/her needs and means.
+
+The *SIM information data file* contains, for each SIM installed in a
+network adapter currently plugged-in, its ICCID, profile, driver name
+and driver parameters.
+It is updated by the devd scripts whenever a network adapter device is
+plugged or unplugged.
+
+The *accounting data file* contains the accounting record described in
+the [previous section](#introduction).
+
+The *active SIM data file* contains, for each SIM employed in a
+currently active connection to the mobile network, its ICCID and
+profile.
+
+The accounting and active SIM data files are updated by the interface
+and helper scripts whenever a new connection is started or stopped.
+
+Configuration
+-------------
+Configuration involves three entities: the network adapter device, the
+*Dial-Up Utilities* and the system.
+
+### Network adapter device configuration ###
+
+The term "device configuration", in this context, may be a misnomer.
+In fact, what it is here really intended, is to configure `devd(8)` such
+that when a network adapter is plugged-in it is detected and the *SIM
+information data file* updated with the information required by the
+[driver scripts](#drivers) to start and stop network connections.
+
+This process actually means writing  some `devd(8)` configuration file
+(stored in the `%%PREFIX%%/etc/devd` directory), optionally, also some
+helper script (stored in the `%%LIBEXECDIR%%/devd` directory) and may
+also involve "proper" device configuration, but this last step is highly
+device dependent.
+
+Due to the vast amount and variety of vendors and products, and the
+limited number of network adapter devices I could configure `devd(8)`
+for, chances are that you'll have to write your own `devd(8)`
+configuration files and scripts.
+And to help you in this task, two archetypal examples are provided:
+
+1. [Huawei E1752](#huawei-e1752)
+2. [D-Link DWM-222 4G LTE USB Adapter](#d-link-dwm-222-4g-lte-usb-adapter)
+
+#### Huawei E1752 ####
+
+This example make use of the following `devd(8)` configuration files:
+
+* `cua.conf`
+* `huawei.conf`
+
+and the following devd scripts:
+
+* `attach_u3g`
+* `detach_cua`
+* `disable_sim`
+* `enable_sim`
+
+When the *Huawei E1752* is plugged-in, the first `huawei.conf`'s rule
+will load the `u3g` driver.
+The driver will then eject the "virtual CD-ROM" of the device, which
+causes the device to "switch mode" (this is the term used in the *Linux*
+world) to a different USB product id.
+
+> **NOTE:** This procedure is almost universally employed in all such
+> devices.
+> The purpose is to allow the user to install drivers and tools from the
+> virtual CD-ROM, that is, without the need for a real CD-ROM.
+> Then, once the drivers are installed, whenever the device is plugged
+> they will automatically switch mode, such that the user will never
+> see the virtual CD-ROM again.
+>
+> This procedure is sometimes called "ZeroCD Installer".
+
+When the device with the new product id shows up, the second
+`huawei.conf`'s rule will run the `attach_u3g` devd script.
+
+> **NOTE:** What to do when the network adapter device is detected is
+> driver dependent and yes, chances are that you may also need to write
+> your own [driver scripts](#drivers).
+
+The purpose of `attach_u3g` is twofold:
+
+1. create the symbolic links `modemN` and `terminalN` to the actual
+   `cuaUX.Y` special files allocated to the network adapter
+2. run the `enable_sim` script
+
+The symbolic links provide a "standard" naming scheme that allow the
+driver scripts to find the `cuaUX.Y` special files of the device.
+
+The `attach_u3g` script accepts three arguments, the first one is
+mandatory and the other two are optional.
+They are, respectively, the `cua` special file for the `modemN` symbolic
+link, the `cua` special file for the `terminalN` symbolic link and a
+delay (in seconds) to wait before running the `enable_sim` devd script
+(some network adapter need some time before being ready to access the
+SIM).
+The `modemN` is used to control the device, while the optional
+`terminalN` is available to the user to access the device while in use.
+`N` (an integer starting from zero) identify the device.
+
+The `enable_sim` script accepts one or more arguments, the first
+(mandatory) one is the name of the driver scripts to use and the
+remaining are any (optional) parameter the driver scripts may require.
+
+In this example, the arguments are "ppp" and `N` (the abovementioned
+device id).
+
+The purpose of `enable_sim` is to:
+
+* unlock the SIM, if locked, using the PIN stored in the *PINs
+  configuration file*
+* register the device, that is, update the *SIM information data file*
+
+To perform these tasks, the `enable_sim` devd script makes use of the
+`get_iccid` and `unlock_sim` driver scripts.
+The first allows to retrieve the SIM's ICCID, which is used to retrieve
+the PIN and the profile name from the *PINs configuration file*.
+
+> **NOTE:** In case of errors, the device won't be registered.
+
+Now, when the network adapter device is unplugged, `cua.conf`'s (only)
+rule will be triggered, which will run the `detach_cua` devd script.
+
+The `detach_cua` script accepts one mandatory argument, the name of the
+`cua` device destroyed.
+The script will search among the `modemN` and `terminalN` symbolic links
+the ones linked to the `cua` device, will remove them and then will run
+the `disable_sim` devd script to unregister the network adapter.
+
+The `disable_sim` script accepts the same arguments as the `enable_sim`
+script.
+It uses these arguments to identify and delete the corresponding entry
+from the *SIM information data file*.
+This implies that there is no need to pass all the argument passed to
+`enable_sim`, but just the minimum required to uniquely identify the
+correct entry.
+
+In this example, the arguments will be "ppp" and `N` (extracted from the
+name of the `modemN` symbolic link).
+
+This is all about this example.
+However, if you are going to write your own `devd` configuration files
+and scripts, you should notice how the SIM / network adapter device are
+identified and located.
+
+When the network adapter device is plugged-in, `devd(8)` provide us some
+reference to the device.
+In this example, the variable `ttyname` contains the basename of the tty
+special nodes allocated to the device.
+
+From this basename, two "standardized" symbolic names, i.e., `modemN`
+and `terminalN`, are created.
+We could do without such standardized symbolic names, but I think useful
+for the user (i.e., me) to have some clearly marked names to access the
+device.
+
+Then, the [driver scripts](#drivers) are invoked to extract the ICCID
+from the SIM which is used to retrieve the profile name from the
+*profiles configuration file*.
+
+So, you see, we have a chain of identifiers:
+
+ttyname → driver name / device id (N) → ICCID → profile name
+
+that, from whatever identifier `devd(8)` provides, lead us to the proper
+profile name to apply to the network connection.
+
+This chain is device and driver specific and you may be required to find
+some alternative chain that, from whatever `devd(8)` provides for your
+network adapter device driver, leads to the proper profile name.
+
+The `attach_umodem` devd script provide an example of such an
+alternative, although quite similar, chain (developed for the `umodem`
+kernel driver), while the
+[next section](#d-link-dwm-222-4g-lte-usb-adapter) provides yet another
+example, which makes no use of the `modemN` / `terminalN` symbolic
+names.
+
+#### D-Link DWM-222 4G LTE USB Adapter ####
+
+> **NOTE:** These sample files will NOT be installed, unless the
+> "Install the D-Link DWM-222 driver" port option has been enabled.
+
+This example make use of the following `devd(8)` configuration files:
+
+* `cd.conf`
+* `dlink.conf`
+* `ue.conf`
+
+and the following devd scripts:
+
+* `attach_ue`
+* `detach_ue`
+* `disable_sim`
+* `enable_sim`
+* `eject`
+
+With this device, things go, more or less, like with the *Huawei E1752*:
+the device in plugged-in, a virtual CD-ROM shows up, the virtual CD-ROM
+is ejected, the actual network device shows up.
+
+There are, however, a couple of complications.
+First, there is no *FreeBSD* specific driver for this device, that is,
+there will be no automatic ejection of the virtual CD-ROM.
+Second, `devd(8)` does not provide enough information to link the two
+device names we need to access (that is, `cdN` and `ueN`) to the *D-Link
+DWM-222* network adapter.
+Here is how those complications are tackled.
+
+The first rule of `dlink.conf` will run the `eject` devd script, solving
+the first complication.
+But this is not enough, for `devd(8)` does not provide us the name of
+the `cdN` device to eject: this is the second complication.
+A second rule is required to get that name.
+And this is the purpose of `cd.conf`, whose only rule will too run the
+`eject` script.
+
+Again, `devd(8)` does not provide any reference to the *D-Link DWM-222*
+network adapter, so, as far as the `eject` script is concerned, the
+`cdN` device detected could be a real CD-ROM device or it could be
+*Huawei E1752*'s one, which doesn't need to be ejected twice.
+We need both rules and we also need to combine them somehow to eject the
+`cdN` device only when we know it is a *D-Link DWM-222*'s virtual
+CD-ROM.
+
+The trick here is to make use of some sort of "temporal correlation"
+between the two `eject` script invocations: if the two invocations
+happen (in whatever order) within 5 seconds, then we know that the `cdN`
+device reported by the `cd.conf`'s rule is, with high probability, the
+virtual CD-ROM of the *D-Link DWM-222* network adapter.
+
+> **NOTE:** The "temporal correlation" trick is not perfect and in some
+> corner cases, like plugging multiple devices at the same time, may
+> misbehave.
+
+Once the virtual CD-ROM is ejected, within a few seconds a new USB
+device and corresponding `ueN` network device will appear.
+
+Again we are faced with the issue of correlating the two devices without
+enough information from `devd(8)`, and again the solution is the
+temporal correlation trick, implemented in the third rule of
+`dlink.conf`, the first rule of `ue.conf` and the `attach_ue` devd
+script.
+
+Once we have the name of the `ueN` device, we must convert it into the
+IP address of the embedded WEB server of *D-Link DWM-222* (see the
+[dlink driver](#dlink) section for more information).
+This is done in the `attach_ue` script, waiting for a DHCP leases file
+for the `ueN` device to show up or be updated, then grabbing the router
+option entry.
+
+> **IMPORTANT:** Note that, for the `attach_ue` script to work, the DHCP
+> client must be enabled for the `ueN` device.
+> So, you may need to add `ifconfig_ue0="SYNCDHCP"` or equivalent to
+> your `/etc/rc.conf`.
+
+Once we have the IP address of the embedded WEB server, we can invoke
+the `enable_sim` devd script to unlock the SIM and register the device.
+
+> **NOTE:** For more information on the `enable_sim` devd script, see
+> the [previous section](#huawei-e1752).
+
+In the default version of `dlink.conf`, that is, with the second rule
+commented-out, the *D-Link DWM-222* is accessed through the *RNDIS*
+protocol.
+If, however, you prefer to access it through the *CDC-ECM* protocol,
+uncomment the second rule and modify the third as directed in the
+comments.
+
+This modification will add a third step in the configuration process,
+such that, in the second step, when the network device shows up, instead
+of registering it (invoking the `attach_ue` devd script) the `usbconfig
+set_config` command is run.
+This command will switch the USB interface configuration from 0, the
+default *RNDIS* configuration, to 1, the *CDC-ECM* configuration, and
+when the *CDC-ECM* device shows up we register it (third rule of
+`dlink.conf`).
+
+A last devd rule (`ue.conf`'s second one) remains to be explained.
+This rule is used to unregister the device, invoking the `detach_ue`
+devd script.
+The script requires only one argument, the name of the `ueN` device,
+which is passed straight to the `disable_sim` devd script, alongside
+the driver name (`dlink`).
+
+> **NOTE:** There is no need to pass `disable_sim` all the arguments
+> previously passed to `enable_sim`, as the `ueN` device name is enough
+> to locate the correct entry in the *SIM information data file*.
+> For more information about the `disable_sim` script, see the
+> [previous section](#huawei-e1752).
+
+The last thing to note, before closing this section, is the chain of
+identifiers employed with the *D-Link DWM-222* network adapter:
+
+subsystem name (`ueN`) → embedded WEB server IP address → ICCID →
+profile name
+
+Also note that we store both the subsystem name and the embedded WEB
+server IP address in the *SIM information data file* to ease both access
+and de-registration of the *D-Link DWM-222* device.
+
+### Dial-Up Utilities configuration ###
+
+The *Dial-Up Utilities* requires the following three configuration
+files:
+
+1. the *PINs configuration file*
+2. the *profiles configuration file*
+3. the *global configuration file*
+
+You only need to create / edit the first two.
+The third is installed along with the scripts and shouldn't require any
+editing (but see [below](#global-configuration-file)).
+
+#### PINs configuration file ####
+
+The *PINs configuration file* is a text file, by default located at
+`%%ETCDIR%%/pins`.
+
+For each SIM managed, add a line containing the following entries
+separated by spaces:
+
+* the ICCID of the SIM: this is usually printed in small letter on the
+  SIM itself or on the accompanying papers
+* the PIN to unlock the SIM: if the SIM is not PIN-locked, this field
+  is ignored
+* the profile name: see [next section](#profiles-configuration-file)
+
+The following is an example:
+```
+89390100002123456789 1234 100G_promo
+```
+
+#### Profiles configuration file ####
+
+The *profiles configuration file* is a text file, by default located at
+`%%ETCDIR%%/profiles`.
+
+For each data plan subscribed with your Mobile Network Operator, add a
+line containing the following entries separated by spaces:
+
+* the profile name: no spaces allowed
+* the monthly network traffic quota (in bytes)
+* the day of the month the traffic quota is reset to its maximum: put in
+  other words, this is the day your subscription has been activated
+* auto-disconnect flag: if "true", terminate the network connection when
+  the monthly traffic quota is exhausted
+* enable DNS flag: if "true", set-up `resolvconf(8)` to forward DNS
+  queries to the DNS servers provided by your MNO
+
+The following is an example:
+```
+100G_promo 107374182400 15 true false
+```
+
+#### Global configuration file ####
+
+The *global configuration file* is a shell text file, by default located
+at `%%LIBEXECDIR%%/config`.
+
+It should only contain shell variable definitions and comments.
+Also, you should not need to modify any of those variables (except,
+maybe, `DEVICE_STALE_TIMEOUT`, `EJECT_SLEEP` and `DHCP_TIMEOUT`), but
+you may need to add more variables, if you write your own driver or devd
+scripts.
+
+Here are a few tips:
+
+* if your network adapter device requires more time to switch mode (see
+  [Network adapter device configuration](#network-adapter-device-configuration) 
+  section and sub-sections), increase `DEVICE_STALE_TIMEOUT`
+* if your device requires more time to start up and be ready to eject
+  the virtual CD-ROM, increase `EJECT_SLEEP`
+* if your device needs more time to start the DHCP server, increase
+  `DHCP_TIMEOUT`
+* if you really need to change the `SM_KEY` variable, try not to use a
+  phone number you may send SMs to, or you may inadvertently mess up the
+  accounting data
+
+### System configuration ###
+
+The *Dial-Up Utilities* make use of several system services and so, some
+of them, must be properly configured.
+
+First is the network subsystem.
+If your network adapter device acts like a DHCP server (as the
+[D-Link DWM-222](#d-link-dwm-222-4g-lte-usb-adapter) does) you must
+configure the system to act like a DHCP client.
+Adding `ifconfig_ue0="SYNCDHCP"` to `/etc/rc.conf` will tell
+`dhclient(8)` to configure the `ue0` interface through DHCP.
+
+You may also need to configure `resolvconf(8)`, although it worked out
+of the box for me.
+
+Second is the logging service.
+The `%%PREFIX%%/etc/syslog.d/%%PORTNAME%%.conf` should work as is, but
+you may want to save logs in a different file than
+`/var/log/%%PORTNAME%%.log`, the default one.
+Same for `%%PREFIX%%/etc/newsyslog.conf.d/%%PORTNAME%%.conf`.
+
+Third are the system's `linkup` and `linkdown` scripts.
+For these scripts are meant to run command that alter the system
+configuration, they are executed through the `sudo` command.
+
+The provided `%%PREFIX%%/etc/sudoers.d/%%PORTNAME%%` will enable any
+user of the `network` group to run the `%%ETCDIR%%/linkup` and
+`%%ETCDIR%%/linkdown` scripts.
+If you don't need to do any system configuration, just delete the sample
+scripts and they won't be executed.
+
+> **NOTE:** If you keep the `sudo` configuration file as is, remember to
+> add to the `network` group all the user you want to be able to start a
+> network connection.
+
+Fourth, and last, are the user's `linkup` and `linkdown` scripts.
+These scripts are located in the user's home directory, i.e.,
+`$HOME/.config/dialup/linkup` and `$HOME/.config/dialup/linkdown`, and
+are executed as the user, so `sudo` is not required here.
+
+No sample files will be installed, so if you need them, you must create
+them.
+`%%EXAMPLESDIR%%/linkup` contains an example.
+
+Whether they are system's or user's scripts, `linkdown` should undo
+whatever `linkup` does.
+
+Drivers
+-------
+The purpose of the driver scripts is to provide an uniform interface to
+the services of network adapter devices.
+
+Each script controls a single, elementary function:
+
+* [connect](#connect): starts a network connection
+* [disconnect](#disconnect): stops the network connection
+* [get_iccid](#get_iccid): retrieves the SIM's ICCID
+* [sm_read](#sm_read): retrieves the content text of a SM (Short
+  Message)
+* [sm_write](#sm_write): writes/updates the content text of a SM (Short
+  Message)
+* [unlock_sim](#unlock_sim): unlocks the SIM
+
+First, we'll look at each driver script in turn and the interface they
+must adhere to.
+Then we'll analyze two implementation of these scripts and how to
+configure them:
+
+1. [ppp](#ppp): for network adapter devices that support AT commands
+2. [dlink](#dlink): for the
+   [D-Link DWM-222](#d-link-dwm-222-4g-lte-usb-adapter) network adapter
+
+### Driver scripts ###
+
+All the driver scripts share a few common features.
+
+First, the arguments provided to the scripts are made up of a "fixed
+set", specific to the script invoked, followed by a "variable set",
+specific to the driver.
+The variable set is none other than the "driver parameters" determined
+by the devd scripts and stored in the *SIM information data file* (see
+[Network adapter device configuration](#network-adapter-device-configuration)).
+
+Second, whenever a script cannot perform the function it's supposed to
+implement, it must terminate with a non-zero exit code.
+There may be exit codes reserved to signal specific error conditions and
+they should be used whenever the error condition occurs.
+Otherwise, any other exit code may be used.
+
+#### connect ####
+
+The purpose of this script is twofold:
+
+1. start a network connection
+2. start a "monitor" process that will record the amount of network
+   traffic generated and, optionally, stop the network connection if the
+   monthly network traffic quota is exhausted
+
+The fixed set arguments are:
+
+* `pid_file`: the name of a text file the script may use to store the
+  PID of the monitor process
+* `traffic_file`: the name of a text file the script shall use to store
+  the amount of network traffic generated (in bytes)
+* `resolvconf_configuration_file`: the name of a text file where the
+  script shall put DNS options to configure `resolvconf(8)`
+* `resolvconf_interface_file`: the name of a text file where the script
+  shall put the name of the network interface to be configured with the
+  DNS options provided above
+* `sim_profile`: the name of the
+  [profile](#profiles-configuration-file) to apply to the network
+  connection
+* `remaining_traffic`: the available network traffic quota (in bytes)
+* `autodisconnect`: if `true`, the monitor process shall terminate the
+  network connection when the network traffic quota is exhausted
+
+Whether the `pid_file` is used to store the PID of the monitor process
+or not, it must be deleted when the monitor process terminates.
+
+The monitor process should write a single line of text in the
+`traffic_file` just before exiting (or, even better, update it
+regularly).
+The line of text should consist of two values separated by a single
+space: the first value is the number of received bytes, while the
+second value is the number of transmitted bytes.
+
+The `resolvconf_configuration_file` and `resolvconf_interface_file`
+arguments are optional, that is, if empty the script shall ignore them.
+Else, the script should attempt to read the IP addresses of the DNS
+servers and write valid DNS options for `resolvconf(8)` in the file
+specified by `resolvconf_configuration_file`.
+
+If the script is unable to retrieve the IP addresses of the DNS servers,
+it should leave the `resolvconf_configuration_file` and
+`resolvconf_interface_file` files empty and terminate with a zero exit
+code (that is, without errors).
+
+#### disconnect ####
+
+The purpose of this script is to undo whatever the `connect` script did,
+that is:
+
+1. stop the network connect
+2. stop the monitor process
+
+The fixed set arguments for this script are:
+
+* `pid_file`: this is the same filename provided to the `connect` script
+
+#### get_iccid ####
+
+This script is used to retrieve the ICCID of the SIM.
+
+The are no fixed set arguments for this script.
+
+#### sm_read ####
+
+The `sm_read` script must retrieve the text that the `sm_write` script
+stored in the SIM memory.
+
+There's is only one fixed set argument:
+
+* `sm_key`: this is a numeric string used to identify the text stored in
+  the SIM memory
+
+The value of `sm_key` is the same provided to the `sm_write` script.
+
+If no text is stored in the SIM memory under the `sm_key`, the script
+must terminate with exit code 2.
+
+See the [next session](#sm_write) for more implementation notes.
+
+#### sm_write ####
+
+The `sm_write` shall store the provided text in the SIM memory as an
+outgoing (a.k.a. "draft") SM (Short Message).
+
+The fixed set arguments for this script are:
+
+* `sm_key`: a key to identify the stored text
+* `text`: the text to be stored in the SIM memory
+
+The value of `sm_key` shall be used as the Destination Address
+(receiver) of the outgoing SM.
+
+The `text` argument will contain spaces, but it will not contain
+carriage returns nor line feeds.
+
+Note that, to store the text in the SIM memory, other techniques could
+be employed, e.g., the Phone Book.
+However, you should not employ them, as this will prevent other drivers
+from reading it.
+
+#### unlock_sim ####
+
+This script is used to unlock the SIM.
+If the SIM is already unlock, the script must terminate with a zero exit
+code.
+
+There's is only one fixed set argument:
+
+* `pin`: the PIN to unlock the SIM
+
+### Driver implementations ###
+
+Now we'll briefly review the implementation details of the drivers
+provided with the *Dial-Up Utilities*.
+For the details, just read the source code.
+
+#### ppp ####
+
+This is a generic driver that employs the `ppp(8)` system utility to
+start and stop network connections.
+This means that, for this driver to work, your network adapter device
+must provide (or emulate) an AT (Hayes) commands serial interface.
+
+The scripts of this driver require the following variable set argument:
+
+* `device_id`: the device identifier computed by `attach_u3g` or
+  `attach_umodem`, see [Huawei E1752](#huawei-e1752)
+
+The `connect` and `disconnect` scripts use the `ppp(8)` and `pppctl(8)`
+commands to start and stop the network connection.
+Whereas, the `get_iccid`, `sm_read`, `sm_write` and `unlock_sim` scripts
+use the `chat(8)` utility to send AT commands to the serial interface.
+
+> **NOTE:** `get_iccid` uses AT commands to retrieve SIM's ICCID,
+> however some network adapters do not allow to read the ICCID until the
+> SIM is unlocked (this behaviour violates the ETSI TS 102 221
+> standard).
+
+In addition to the mandatory scripts, this driver includes the `monitor`
+script, whose purpose is to record the number of received and
+transmitted bytes and:
+
+* periodically update the `traffic_file`, and
+* drop the connection if the monthly quota is exhausted and the
+  `autodisconnect` argument was set to `true`
+
+An extra `config` file contains several configuration parameters shared
+among the driver's scripts.
+
+Note that before you can use this driver, you must configure `ppp(8)` to
+work with your MNO.
+
+The `%%EXAMPLESDIR%%` directory contains examples of the `ppp.conf`,
+`ppp.linkup` and `ppp.linkdown` configuration files you can copy into
+`/etc/ppp` and edit to suit your MNO.
+Please see the `ppp(8)` manual page for more informations.
+
+#### dlink ####
+
+> **NOTE:** These driver scripts will NOT be installed, unless the
+> "Install the D-Link DWM-222 driver" port option has been enabled.
+
+This driver is specific for the *D-Link DWM-222 4G LTE USB Adapter* and
+requires the [dlinkcontrol](https://github.com/fltt/dlinkcontrol)
+utility to be already installed.
+
+The scripts of this driver require the following variable set arguments:
+
+* `device`: the `ueN` network device emulated by *D-Link DWM-222*
+* `host`: the IP address of the embedded WEB server
+
+The values of these arguments are generated by `attach_ue` (see
+[D-Link DWM-222 4G LTE USB Adapter](#d-link-dwm-222-4g-lte-usb-adapter)).
+
+Note that this driver assumes that the *D-Link DWM-222* device was
+already configured, through its embedded WEB server, to work with your
+MNO.
+This implies that the `sim_profile` argument of the `connect` script is
+ignored.

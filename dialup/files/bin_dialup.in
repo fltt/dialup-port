@@ -1,0 +1,126 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+SIM_LIST_FILE=$(/usr/bin/mktemp)
+SELECT_TEMP_FILE=$(/usr/bin/mktemp)
+
+trap "/bin/rm \"$SELECT_TEMP_FILE\" \"$SIM_LIST_FILE\"" EXIT
+
+cd "%%LIBEXECDIR%%"
+
+. ./config
+
+if test -s "$SIM_INFO_FILE"; then
+  /bin/cat "$SIM_INFO_FILE" >"$SIM_LIST_FILE"
+  if test -s "$ACTIVE_SIM_FILE"; then
+    exec 3<"$ACTIVE_SIM_FILE"
+
+    while read iccid sim_profile <&3; do
+      /usr/bin/sed -i '' -e "/^$iccid /d" "$SIM_LIST_FILE"
+    done
+
+    exec 3<&-
+  fi
+fi
+
+if ! ./dial/select_sim "$SIM_LIST_FILE" "$SELECT_TEMP_FILE"; then
+  /usr/bin/logger -s -p user.notice -t %%PORTNAME%%/dialup "SIM selection failed"
+  exit 1
+fi
+
+iccid=$(/bin/cat "$SELECT_TEMP_FILE")
+
+exec 3<"$SIM_INFO_FILE"
+
+while read id sim_profile driver args  <&3; do
+  test "$id" = "$iccid" && break
+done
+
+exec 3<&-
+
+if test "$id" != "$iccid"; then
+  /usr/bin/logger -s -p user.crit -t %%PORTNAME%%/dialup "ICCID \"$iccid\" not found"
+  exit 1
+fi
+
+exec 3<"$PROFILES_FILE"
+
+while read profile available_traffic start_day autodisconnect enable_dns <&3; do
+  test "$profile" = "$sim_profile" && break
+done
+
+exec 3<&-
+
+if test "$profile" != "$sim_profile"; then
+  /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/dialup "SIM profile \"$sim_profile\" not found"
+  exit 1
+fi
+
+remaining_traffic=$(./dial/check_availability "$iccid" "$sim_profile" "$available_traffic" "$start_day" "$autodisconnect" "$driver" $args)
+result=$?
+if test $result -ne 0 ; then
+  /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/dialup "cannot start connection"
+  exit 1
+fi
+
+iccid_pid_file=$(printf "$MONITOR_PID_FILE" "$iccid")
+iccid_traffic_file=$(printf "$TRAFFIC_FILE" "$iccid")
+
+if test "$enable_dns" = true; then
+  RESOLVCONF_CONFIGURATION_FILE=$(/usr/bin/mktemp)
+  RESOLVCONF_INTERFACE_FILE=$(/usr/bin/mktemp)
+
+  trap "/bin/rm \"$RESOLVCONF_CONFIGURATION_FILE\" \"$RESOLVCONF_INTERFACE_FILE\" \"$SELECT_TEMP_FILE\" \"$SIM_LIST_FILE\"" EXIT
+else
+  RESOLVCONF_CONFIGURATION_FILE=
+  RESOLVCONF_INTERFACE_FILE=
+fi
+
+if ! "./drivers/$driver/connect" "$iccid_pid_file" "$iccid_traffic_file" "$RESOLVCONF_CONFIGURATION_FILE" "$RESOLVCONF_INTERFACE_FILE" "$sim_profile" "$remaining_traffic" "$autodisconnect" $args; then
+  /usr/bin/logger -s -p user.error -t %%PORTNAME%%/dialup "connection failed"
+  exit 1
+fi
+
+echo "$iccid $sim_profile" >>"$ACTIVE_SIM_FILE"
+
+if test -z "$RESOLVCONF_INTERFACE_FILE"; then
+  interface=
+else
+  read interface <"$RESOLVCONF_INTERFACE_FILE"
+fi
+
+/usr/sbin/daemon ./dial/monitor "$iccid" "$sim_profile" "$start_day" "$interface" "$driver" $args
+
+if test -x "$SYSTEM_LINKUP_COMMAND"; then
+  if test -x "$SUDO_COMMAND"; then
+    /usr/bin/logger -p user.info -t %%PORTNAME%%/dialup "executing system linkup command: \"$interface\""
+    "$SUDO_COMMAND" "$SYSTEM_LINKUP_COMMAND" "$interface" "$RESOLVCONF_CONFIGURATION_FILE" || /usr/bin/logger -p user.warning -t %%PORTNAME%%/dialup "system linkup command \"$SYSTEM_LINKUP_COMMAND\" failed ($?)"
+  else
+    /usr/bin/logger -p user.error -t %%PORTNAME%%/dialup "could not execute system linkup command: sudo command \"$SUDO_COMMAND\" not found"
+  fi
+fi
+
+if test -x "$USER_LINKUP_COMMAND"; then
+  /usr/bin/logger -p user.info -t %%PORTNAME%%/dialup "executing user linkup command"
+  "$USER_LINKUP_COMMAND" || /usr/bin/logger -p user.warning -t %%PORTNAME%%/dialup "user linkup command \"$USER_LINKUP_COMMAND\" failed ($?)"
+fi

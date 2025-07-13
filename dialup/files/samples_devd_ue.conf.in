@@ -1,0 +1,13 @@
+notify 100 {
+	match "system" "IFNET";
+	match "subsystem" "ue[0-9]+";
+	match "type" "ATTACH";
+	action "%%LIBEXECDIR%%/devd/attach_ue device $subsystem";
+};
+
+notify 100 {
+	match "system" "IFNET";
+	match "subsystem" "ue[0-9]+";
+	match "type" "DETACH";
+	action "%%LIBEXECDIR%%/devd/detach_ue $subsystem";
+};

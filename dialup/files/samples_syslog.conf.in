@@ -1,0 +1,2 @@
+:programname,regex,"^%%PORTNAME%%/"
+*.*						/var/log/%%PORTNAME%%.log

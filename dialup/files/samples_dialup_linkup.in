@@ -1,0 +1,11 @@
+#! /bin/sh
+
+resolvconf_interface="$1"
+resolvconf_configuration_file="$2"
+
+if test -n "$resolvconf_interface" && test -r "$resolvconf_configuration_file"; then
+  /bin/cat "$resolvconf_configuration_file" | /sbin/resolvconf -a "$resolvconf_interface"
+fi
+
+# %%LOCALBASE%%/bin/chronyc online &
+# /bin/sleep 1 && %%LOCALBASE%%/sbin/inadyn &

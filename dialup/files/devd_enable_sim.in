@@ -1,0 +1,64 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 1; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/enable_sim "not enough arguments"
+  exit 1
+fi
+
+driver="$1"
+shift 1
+
+cd $(/usr/bin/dirname "$0")
+cd ..
+
+if test -z "$driver" || ! test -d "./drivers/$driver"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/enable_sim "invalid driver: \"$driver\""
+  exit 1
+fi
+
+iccid=$("./drivers/$driver/get_iccid" "$@")
+if test -z "$iccid"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/enable_sim "ICCID retrieval failed"
+  exit 1
+fi
+
+. ./config
+
+exec 3<"$PINS_FILE"
+
+while read id pin sim_profile <&3; do
+  test "$id" = "$iccid" && break
+done
+
+exec 3<&-
+
+if test -z "$sim_profile"; then
+  /usr/bin/logger -p daemon.notice -t %%PORTNAME%%/enable_sim "ICCID $iccid is unknown"
+  exit 1
+fi
+
+if "./drivers/$driver/unlock_sim" "$pin" "$@"; then
+  /usr/bin/logger -p daemon.info -t %%PORTNAME%%/enable_sim "SIM enabled ($sim_profile)"
+  echo "$iccid $sim_profile $driver $*" >>"$SIM_INFO_FILE"
+fi

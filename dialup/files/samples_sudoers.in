@@ -1,0 +1,2 @@
+Cmnd_Alias DIALUP_MANAGEMENT=%%ETCDIR%%/linkup, %%ETCDIR%%/linkdown
+%network ALL=(root:network) NOPASSWD: DIALUP_MANAGEMENT

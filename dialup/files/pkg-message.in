@@ -1,0 +1,28 @@
+[
+{
+  type: install
+  message: <<EOM
+This is a summary of the configuration and set-up process.
+For a deeper and more detailed treatment, see %%DOCSDIR%%/README.
+Also see %%EXAMPLESDIR%%/README for additional configuration files required by the "ppp" driver.
+
+Add users of the *Dial-Up Utilities* to the "network" group.
+
+In %%ETCDIR%%/profiles add a new profile for your MNO data plan.
+In %%ETCDIR%%/pins add a new line for your SIM (you need an entry even if you SIM is not PIN locked).
+
+Edit %%ETCDIR%%/linkup and %%ETCDIR%%/linkdown to suit your network configuration.
+Optionally, create or copy and edit %%EXAMPLESDIR%%/linkup to $HOME/.config/dialup/linkup and/or create $HOME/.config/dialup/linkdown for additional user-specific network configuration.
+
+Create or edit sample devd(8) configuration files in %%PREFIX%%/etc/devd to suite your network adapter device.
+You may also need to create new devd scripts in %%LIBEXECDIR%%/devd or edit the provided ones and the %%LIBEXECDIR%%/config configuration file.
+
+Maybe edit %%PREFIX%%/etc/syslog.d/%%PORTNAME%%.conf and %%PREFIX%%/etc/newsyslog.conf.d/%%PORTNAME%%.conf (don't forget to run "service syslogd restart" and "service newsyslog restart" if you do).
+
+Optionally edit %%PREFIX%%/etc/sudoers.d/%%PORTNAME%% too.
+
+If using the "ppp" driver, copy and edit %%EXAMPLESDIR%%/ppp.conf, %%EXAMPLESDIR%%/ppp.linkdown and %%EXAMPLESDIR%%/ppp.linkup to /etc/ppp.
+If using the "dlink" driver, add ifconfig_ue0="SYNCDHCP" (or equivalent) to /etc/rc.conf.
+EOM
+}
+]

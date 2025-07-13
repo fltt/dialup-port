@@ -1,0 +1,8 @@
+isp1:
+  load link-down
+
+isp2:
+  load link-down
+
+isp3:
+  load link-down

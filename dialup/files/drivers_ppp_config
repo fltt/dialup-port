@@ -1,0 +1,7 @@
+FIRST_TRAFFIC_POLL_DELAY=10
+MAXIMUM_TRAFFIC_POLL_DELAY=60
+
+DEVICE_UNIT_FILE="/var/run/ppp/units.txt"
+
+MONITOR_SLEEP_PID_FILE="/var/run/ppp/monitor_sleep-%d.pid" # unit
+PPP_CONTROL_FILE="/var/run/ppp/pppctl%d" # unit

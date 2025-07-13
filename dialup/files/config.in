@@ -1,0 +1,108 @@
+#
+# Copyright (c) 2024 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+# NOTE: The only configuration parameters you may actually need to
+#       change are DEVICE_STALE_TIMEOUT, DHCP_SLEEP, DHCP_TIMEOUT and
+#       EJECT_SLEEP (see section "Global configuration file" of
+#       %%DOCSDIR%%/README).
+
+
+# Maximum time distance (in seconds) between "temporally correlated"
+# devd events.
+# Used in the `attach_ue` and `eject` devd scripts (see section "D-Link
+# DWM-222 4G LTE USB Adapter" in %%DOCSDIR%%/README).
+DEVICE_STALE_TIMEOUT=5
+
+# `attach_ue` devd script's DHCP polling rate (in seconds)...
+DHCP_SLEEP=0.5
+# ...and time-out (in seconds, see section "D-Link DWM-222 4G LTE USB
+# Adapter" in %%DOCSDIR%%/README).
+DHCP_TIMEOUT=60
+
+# Some device need some time before being ready to be ejected.
+# This value specify how much time (in seconds) to wait before trying to
+# run the eject command.
+EJECT_SLEEP=0.5
+
+
+# Should not need to modify the following variables.
+
+# The "accounting data file" (see section "Organisation" in
+# %%DOCSDIR%%/README).
+ACCOUNT_FILE="/var/db/%%PORTNAME%%/%s.dat" # %s -> ICCID
+
+# The "active SIM data file" (see section "Organisation" in
+# %%DOCSDIR%%/README).
+ACTIVE_SIM_FILE=/var/run/%%PORTNAME%%/active_sim
+
+# Temporary files used by `eject` devd script to store candidate devices
+# for ejection...
+EJECT_DEVICE_FILE="/tmp/eject.device"
+# ...and to serialize access to EJECT_DEVICE_FILE.
+EJECT_LOCK_FILE="/tmp/eject.lock"
+
+# Temporary file used by drivers to store the PID of the monitor process
+# (see sections "Introduction" and "connect" in %%DOCSDIR%%/README).
+MONITOR_PID_FILE="/var/run/%%PORTNAME%%/%s-monitor.pid" # %s -> ICCID
+
+# The "PINs configuration file" (see section "PINs configuration file"
+# in %%DOCSDIR%%/README).
+PINS_FILE=%%ETCDIR%%/pins
+
+# The "profiles configuration file" (see section "profiles configuration
+# file" in %%DOCSDIR%%/README).
+PROFILES_FILE=%%ETCDIR%%/profiles
+
+# The "SIM information data file" (see section "Organisation" in
+# %%DOCSDIR%%/README).
+SIM_INFO_FILE=/var/run/%%PORTNAME%%/sim_info
+
+# The recipient number of the SM used to store accounting data.
+# Must be numeric.
+SM_KEY=393110301235
+
+# sudo is used to run the connection start-up and shut-down system
+# scripts.
+SUDO_COMMAND=%%LOCALBASE%%/bin/sudo
+
+# Connection start-up and shut-down system scripts (see section
+# "Introduction" in %%DOCSDIR%%/README).
+# NOTE: If the following two variables are modified, update
+#       "%%PREFIX%%/etc/sudoers.d/%%PORTNAME%%" as well.
+SYSTEM_LINKUP_COMMAND=%%ETCDIR%%/linkup
+SYSTEM_LINKDOWN_COMMAND=%%ETCDIR%%/linkdown
+
+# Temporary file used by drivers to store the number of received and
+# transmitted bytes (see sections "Introduction" and "connect" in
+# %%DOCSDIR%%/README).
+TRAFFIC_FILE="/var/run/%%PORTNAME%%/%s-traffic.txt" # %s -> ICCID
+
+# Temporary files used by `attach_ue` devd script to store candidate
+# network devices...
+UE_DEVICE_FILE="/tmp/attach_ue.device"
+# ...and to serialize access to UE_DEVICE_FILE.
+UE_LOCK_FILE="/tmp/attach_ue.lock"
+
+# Connection start-up and shut-down user scripts (see section
+# "Introduction" in %%DOCSDIR%%/README).
+USER_LINKUP_COMMAND="$HOME/.config/%%PORTNAME%%/linkup"
+USER_LINKDOWN_COMMAND="$HOME/.config/%%PORTNAME%%/linkdown"

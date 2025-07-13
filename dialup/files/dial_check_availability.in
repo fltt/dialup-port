@@ -1,0 +1,103 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 6; then
+  /usr/bin/logger -s -p user.err -t %%PORTNAME%%/check_availability "not enough arguments"
+  exit 1
+fi
+
+iccid="$1"
+sim_profile="$2"
+available_traffic="$3"
+start_day="$4"
+autodisconnect="$5"
+driver="$6"
+shift 6
+
+cd $(/usr/bin/dirname "$0")
+cd ..
+
+. ./config
+
+today=$(/bin/date +%d)
+if test $today -lt $start_day; then
+  period_new=$(/bin/date -v -1m +%Y%m)
+else
+  period_new=$(/bin/date +%Y%m)
+fi
+
+TEMP_FILE=$(/usr/bin/mktemp)
+trap "/bin/rm \"$TEMP_FILE\"" EXIT
+
+consumed_by_sm=0
+
+"./drivers/$driver/sm_read" "$SM_KEY" "$@" >"$TEMP_FILE"
+result=$?
+case "$result" in
+  0) read profile period_old rx_bytes tx_bytes <"$TEMP_FILE"
+     if test "$profile" != "$sim_profile"; then
+       /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/check_availability "accounting SM profile ($profile) is different from the expected one ($sim_profile)"
+       exit 1
+     fi
+
+     test "$period_old" = "$period_new" && consumed_by_sm=$((rx_bytes + tx_bytes)) ;;
+  2) /usr/bin/logger -s -p user.notice -t %%PORTNAME%%/check_availability "accounting SM not found" ;;
+  *) /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/check_availability "could not read accounting SM"
+     exit 1 ;;
+esac
+
+consumed_by_file=0
+
+iccid_account_file=$(printf "$ACCOUNT_FILE" "$iccid")
+if test -r "$iccid_account_file"; then
+  read profile period_old rx_bytes tx_bytes <"$iccid_account_file"
+  if test "$profile" != "$sim_profile"; then
+    /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/check_availability "accounting file profile ($profile) is different from the expected one ($sim_profile)"
+    exit 1
+  fi
+
+  test "$period_old" = "$period_new" && consumed_by_file=$((rx_bytes + tx_bytes))
+else
+  if test -f "$iccid_account_file"; then
+    /usr/bin/logger -s -p user.warning -t %%PORTNAME%%/check_availability "could not read accounting file \"$iccid_account_file\""
+    exit 1
+  fi
+
+  /usr/bin/logger -s -p user.notice -t %%PORTNAME%%/check_availability "accounting file \"$iccid_account_file\" not found"
+fi
+
+if test $consumed_by_file -lt $consumed_by_sm; then
+  available_traffic=$((available_traffic - consumed_by_sm))
+  /usr/bin/logger -s -p user.info -t %%PORTNAME%%/check_availability "updating stale accounting file"
+  /bin/cp "$TEMP_FILE" "$iccid_account_file"
+else
+  available_traffic=$((available_traffic - consumed_by_file))
+fi
+
+if test "$autodisconnect" = true && test $available_traffic -le 0; then
+  /usr/bin/logger -s -p user.notice -t %%PORTNAME%%/check_availability "available traffic ($available_traffic bytes) exausted"
+  exit 1
+fi
+
+/usr/bin/logger -s -p user.info -t %%PORTNAME%%/check_availability "good to go: $available_traffic bytes remaining"
+echo "$available_traffic"

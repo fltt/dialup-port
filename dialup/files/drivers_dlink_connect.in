@@ -1,0 +1,63 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 9; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/dlink/connect "not enough arguments"
+  exit 1
+fi
+
+pid_file="$1"
+traffic_file="$2"
+resolvconf_configuration_file="$3"
+resolvconf_interface_file="$4"
+sim_profile="$5"
+remaining_traffic="$6"
+autodisconnect="$7"
+device="$8"
+host="$9"
+
+# $sim_profile is unused: it is expected that the D-Link device
+# is already configured according to the "$sim_profile".
+
+if test "$autodisconnect" = true; then
+  options=" -l"
+else
+  options=
+fi
+
+/usr/bin/logger -p daemon.info -t %%PORTNAME%%/dlink/connect "starting D-Link connection: -qs$options -c \"$remaining_traffic\" -h \"$host\" connect \"$pid_file\" \"$traffic_file\""
+if ! %%LOCALBASE%%/bin/dlinkcontrol -qs$options -c "$remaining_traffic" -h "$host" connect "$pid_file" "$traffic_file"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/dlink/connect "D-Link connection failed"
+  exit 1
+fi
+
+if test -z "$resolvconf_configuration_file" || test -z "$resolvconf_interface_file"; then
+  exit 0
+fi
+
+%%LOCALBASE%%/bin/dlinkcontrol -qs -h "$host" dns | /usr/bin/sed -e '/^ *$/d;/^0\.0\.0\.0$/d;/^127\.0\.0\.1$/d;/^255\.255\.255\.255$/d;s/^\(.*\)$/nameserver \1/' >"$resolvconf_configuration_file"
+if test -s "$resolvconf_configuration_file"; then
+  echo "$device.dhcp" >"$resolvconf_interface_file"
+else
+  /usr/bin/logger -p daemon.notice -t %%PORTNAME%%/dlink/connect "no (valid) DNS servers provided"
+fi

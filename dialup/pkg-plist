@@ -1,0 +1,56 @@
+@mode 640
+@sample etc/sudoers.d/%%PORTNAME%%.sample
+@mode 644
+%%DLINKCONTROL%%@sample etc/devd/cd.conf.sample
+@sample etc/devd/cua.conf.sample
+%%DLINKCONTROL%%@sample etc/devd/dlink.conf.sample
+@sample etc/devd/huawei.conf.sample
+%%DLINKCONTROL%%@sample etc/devd/ue.conf.sample
+@sample etc/newsyslog.conf.d/%%PORTNAME%%.conf.sample
+@sample etc/syslog.d/%%PORTNAME%%.conf.sample
+%%DOCSDIR%%/README
+%%EXAMPLESDIR%%/README
+%%EXAMPLESDIR%%/linkup
+%%EXAMPLESDIR%%/ppp.conf
+%%EXAMPLESDIR%%/ppp.linkdown
+%%EXAMPLESDIR%%/ppp.linkup
+@group network
+@mode 600
+@sample %%ETCDIR%%/pins.sample
+@mode 640
+@sample %%ETCDIR%%/profiles.sample
+%%LIBEXECDIR%%/config
+%%LIBEXECDIR%%/drivers/ppp/config
+@mode 750
+@sample %%ETCDIR%%/linkdown.sample
+@sample %%ETCDIR%%/linkup.sample
+bin/dialup
+bin/hangup
+bin/sync_sim
+%%LIBEXECDIR%%/devd/attach_u3g
+%%DLINKCONTROL%%%%LIBEXECDIR%%/devd/attach_ue
+%%LIBEXECDIR%%/devd/attach_umodem
+%%LIBEXECDIR%%/devd/detach_cua
+%%DLINKCONTROL%%%%LIBEXECDIR%%/devd/detach_ue
+%%LIBEXECDIR%%/devd/disable_sim
+%%DLINKCONTROL%%%%LIBEXECDIR%%/devd/eject
+%%LIBEXECDIR%%/devd/enable_sim
+%%LIBEXECDIR%%/dial/check_availability
+%%LIBEXECDIR%%/dial/monitor
+%%LIBEXECDIR%%/dial/select_sim
+%%DLINKCONTROL%%%%LIBEXECDIR%%/drivers/dlink/connect
+%%DLINKCONTROL%%%%LIBEXECDIR%%/drivers/dlink/disconnect
+%%DLINKCONTROL%%%%LIBEXECDIR%%/drivers/dlink/get_iccid
+%%DLINKCONTROL%%%%LIBEXECDIR%%/drivers/dlink/sm_read
+%%DLINKCONTROL%%%%LIBEXECDIR%%/drivers/dlink/sm_write
+%%DLINKCONTROL%%%%LIBEXECDIR%%/drivers/dlink/unlock_sim
+%%LIBEXECDIR%%/drivers/ppp/connect
+%%LIBEXECDIR%%/drivers/ppp/disconnect
+%%LIBEXECDIR%%/drivers/ppp/get_iccid
+%%LIBEXECDIR%%/drivers/ppp/monitor
+%%LIBEXECDIR%%/drivers/ppp/sm_read
+%%LIBEXECDIR%%/drivers/ppp/sm_write
+%%LIBEXECDIR%%/drivers/ppp/unlock_sim
+@mode 770
+@dir /var/db/%%PORTNAME%%
+@dir /var/run/%%PORTNAME%%

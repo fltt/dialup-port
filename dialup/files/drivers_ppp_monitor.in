@@ -1,0 +1,93 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 4; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/monitor "not enough arguments"
+  exit 1
+fi
+
+traffic_file="$1"
+remaining_traffic="$2"
+autodisconnect="$3"
+unit="$4"
+
+cd $(/usr/bin/dirname "$0")
+
+. ./config
+
+sleep_pid_file=$(printf "$MONITOR_SLEEP_PID_FILE" $unit)
+pppctl_output=$(/usr/bin/mktemp)
+
+trap "exit 0" HUP INT TERM
+trap "/bin/rm -f \"$sleep_pid_file\" \"$pppctl_output\"" EXIT
+
+/bin/sleep $FIRST_TRAFFIC_POLL_DELAY & echo $! >"$sleep_pid_file"
+wait
+
+pppctl_file=$(printf "$PPP_CONTROL_FILE" $unit)
+while test -e "$pppctl_file"; do
+  /usr/sbin/pppctl "$pppctl_file" show ipcp 2>/dev/null | /usr/bin/sed -nEe 's/^([0-9]+) octets in, ([0-9]+) octets out$/\1 \2/p;s/^  peak +([0-9]+) .*$/\1/p' >"$pppctl_output"
+  result=$?
+  test $result -eq 0 || break
+
+  exec 3<"$pppctl_output"
+
+  read octets_in octets_out <&3
+  read octets_rate <&3
+
+  exec 3<&-
+
+  echo "$octets_in $octets_out" >"$traffic_file"
+  octets_available=$((remaining_traffic - octets_in - octets_out))
+  /usr/bin/logger -p daemon.info -t %%PORTNAME%%/ppp/monitor "remaining: $octets_available B @$octets_rate B/s (max)"
+  if test $octets_available -lt $octets_rate; then
+    if test "$autodisconnect" = true; then
+      autodisconnect=false
+      if /usr/sbin/pppctl "$pppctl_file" close; then
+        /bin/rm -f "$sleep_pid_file"
+      else
+        /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/monitor "could not auto-disconnect"
+      fi
+    fi
+    delay=1
+  else
+    if test $octets_rate -eq 0; then
+      delay=$MAXIMUM_TRAFFIC_POLL_DELAY
+    else
+      delay=$(((octets_available - octets_rate) / octets_rate))
+      if test $delay -gt $MAXIMUM_TRAFFIC_POLL_DELAY; then
+        delay=$MAXIMUM_TRAFFIC_POLL_DELAY
+      fi
+    fi
+  fi
+
+  if test -f "$sleep_pid_file" && test $delay -gt 0; then
+    /bin/sleep $delay & echo $! >"$sleep_pid_file"
+    wait
+  else
+    /bin/sleep 0.2
+  fi
+done
+
+/usr/bin/sed -i '' -e "/ $unit\$/d" "$DEVICE_UNIT_FILE"
+test -s "$DEVICE_UNIT_FILE" || /bin/rm "$DEVICE_UNIT_FILE"

@@ -1,0 +1,3 @@
+#! /bin/sh
+
+%%LOCALBASE%%/bin/mpop mailaccount1 mailaccount2 >>"$HOME/mpop.log" 2>&1 &

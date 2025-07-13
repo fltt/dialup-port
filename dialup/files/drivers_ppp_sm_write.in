@@ -1,0 +1,118 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 3; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/sm_write "not enough arguments"
+  exit 1
+fi
+
+sm_key="$1"
+text="$2"
+device_id="$3"
+
+modem="/dev/modem$device_id"
+if ! test -L "$modem"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/sm_write "\"$modem\" does not exist"
+  exit 1
+fi
+
+hex_key=$(echo -n "$sm_key" | /usr/bin/hexdump -ve '/1 "%02d"')
+
+TEMP_FILE=$(/usr/bin/mktemp)
+
+trap "/bin/rm \"$TEMP_FILE\"" EXIT
+
+# Hack for Huawei E1750
+HACK_PID=
+if test -c /dev/cuaU0.2; then
+  /bin/cat /dev/cuaU0.2 >/dev/null &
+  HACK_PID=$!
+fi
+
+for t in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19; do
+  test -f "/var/spool/lock/LCK..modem$device_id" || break
+  sleep .5
+done
+if test -f "/var/spool/lock/LCK..modem$device_id"; then
+  /usr/bin/logger -p daemon.err -t %%PORTNAME%%/ppp/sm_write "timed-out while waiting for device \"$modem\" lock to be lifted"
+  test -z "$HACK_PID" || kill $HACK_PID
+  exit 1
+fi
+
+exec 3<>"$modem"
+
+/usr/bin/chat TIMEOUT 3 ABORT ERROR '' AT OK-AT-OK-AT-OK ATE1 TIMEOUT 5 OK 'AT+CMGF=1' OK 'AT+CPMS="SM","SM"' OK 'AT+CMGL="ALL"' ECHO ON OK <&3 >&3 2>"$TEMP_FILE"
+result=$?
+msg=
+case "$result" in
+  0) ;;
+  1) msg="bad parameters";;
+  2) msg="program error";;
+  3) msg="timeout";;
+  4) msg="command error";;
+  *) msg="unknown error";;
+esac
+if test -n "$msg"; then
+  /usr/bin/logger -p daemon.warning -t %%PORTNAME%%/ppp/sm_write "could not read SMs: $msg"
+  test -z "$HACK_PID" || kill $HACK_PID
+  exit 1
+fi
+
+N=$(/usr/bin/sed -ne "s|^+CMGL: \([^,]*\),[^,]*,\"$sm_key\",.*\$|\\1|p;s|^+CMGL: \([^,]*\),[^,]*,\"$hex_key\",.*\$|\\1|p" "$TEMP_FILE" | /usr/bin/head -n 1)
+if test -n "$N"; then
+  /usr/bin/chat TIMEOUT 3 ABORT ERROR '' AT OK-AT-OK-AT-OK ATE1 TIMEOUT 5 OK "AT+CMGD=$N" OK <&3 >&3
+  result=$?
+  case "$result" in
+    0) ;;
+    1) msg="bad parameters";;
+    2) msg="program error";;
+    3) msg="timeout";;
+    4) msg="command error";;
+    *) msg="unknown error";;
+  esac
+  if test -n "$msg"; then
+    /usr/bin/logger -p daemon.warning -t %%PORTNAME%%/ppp/sm_write "could not delete SM number $N: $msg"
+    test -z "$HACK_PID" || kill $HACK_PID
+    exit 1
+  fi
+fi
+
+/usr/bin/chat TIMEOUT 3 ABORT ERROR '' AT OK-AT-OK-AT-OK ATE1 TIMEOUT 5 OK "AT+CMGW=\"$sm_key\"\\r$text\\032\\c" OK <&3 >&3
+result=$?
+
+exec 3<&-
+
+test -z "$HACK_PID" || kill $HACK_PID
+
+case "$result" in
+  0) ;;
+  1) msg="bad parameters";;
+  2) msg="program error";;
+  3) msg="timeout";;
+  4) msg="command error";;
+  *) msg="unknown error";;
+esac
+if test -n "$msg"; then
+  /usr/bin/logger -p daemon.warning -t %%PORTNAME%%/ppp/sm_write "could not store SM: $msg"
+  exit 1
+fi

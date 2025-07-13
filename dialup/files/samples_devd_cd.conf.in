@@ -1,0 +1,7 @@
+notify 100 {
+	match "system" "GEOM";
+	match "subsystem" "DEV";
+	match "type" "CREATE";
+	match "cdev" "cd[0-9]+";
+	action "%%LIBEXECDIR%%/devd/eject device $cdev";
+};

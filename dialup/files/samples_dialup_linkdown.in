@@ -1,0 +1,7 @@
+#! /bin/sh
+
+resolvconf_interface="$1"
+
+test -z "$resolvconf_interface" || /sbin/resolvconf -d "$resolvconf_interface"
+
+# %%LOCALBASE%%/bin/chronyc -m offline dump &

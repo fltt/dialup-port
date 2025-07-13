@@ -1,0 +1,87 @@
+#! /bin/sh
+#
+# Copyright (c) 2023 Francesco Lattanzio
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+if test $# -lt 2; then
+  /usr/bin/logger -s -p user.err -t %%PORTNAME%%/select_sim "not enough arguments"
+  exit 1
+fi
+
+sim_list_file="$1"
+selected_sim_file="$2"
+
+if ! test -s "$sim_list_file"; then
+  /usr/bin/logger -s -p user.notice -t %%PORTNAME%%/select_sim "no SIM available"
+  exit 1
+fi
+
+if ! exec 3<"$sim_list_file"; then
+  /usr/bin/logger -s -p user.err -t %%PORTNAME%%/select_sim "cannot read from \"$sim_list_file\""
+  exit 1
+fi
+
+if ! exec 4>"$selected_sim_file"; then
+  /usr/bin/logger -s -p user.err -t %%PORTNAME%%/select_sim "cannot write to \"$selected_sim_file\""
+
+  exec 3<&-
+
+  exit 1
+fi
+
+n=0
+
+if test -z "$DISPLAY"; then
+  while read iccid sim_profile ignored <&3; do
+    last_iccid="$iccid"
+    dialog_list="$dialog_list \"$iccid\" \"$sim_profile\""
+    n=$((n + 1))
+  done
+
+  exec 3<&-
+
+  if test $n -gt 1; then
+    eval "/usr/bin/dialog --output-fd 4 --menu \"Select a SIM\" 0 0 0$dialog_list"
+  else
+    echo -n "$last_iccid" >&4
+  fi
+else
+  while read iccid sim_profile ignored <&3; do
+    last_iccid="$iccid"
+    if test -z "$dmenu_list"; then
+      dmenu_list="$iccid $sim_profile"
+    else
+      dmenu_list="$dmenu_list
+$iccid $sim_profile"
+    fi
+    n=$((n + 1))
+  done
+
+  exec 3<&-
+
+  if test $n -gt 1; then
+    echo "$dmenu_list" | eval "%%LOCALBASE%%/bin/dmenu -p \"Select a SIM\"" | (read a b; echo -n "$a" >&4)
+  else
+    echo -n "$last_iccid" >&4
+  fi
+fi
+
+exec 4>&-
