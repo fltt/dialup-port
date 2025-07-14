@@ -20,8 +20,9 @@ SUB_FILES=	${BIN_SCRIPTS:S/^/bin_/} ${DEVD_SCRIPTS:S/^/devd_/} \
 		${EXAMPLES_SCRIPTS:S/^/examples_/} \
 		${PPP_DRIVER_SCRIPTS:S/^/drivers_ppp_/} \
 		${SAMPLES_DEVD_DATA:S/^/samples_devd_/} \
-		${SAMPLES_DIALUP_SCRIPTS:S/^/samples_dialup_/} config README \
-		samples_newsyslog.conf samples_sudoers samples_syslog.conf
+		${SAMPLES_DIALUP_SCRIPTS:S/^/samples_dialup_/} config \
+		pkg-message README samples_newsyslog.conf samples_sudoers \
+		samples_syslog.conf
 SUB_LIST=	LIBEXECDIR=${LIBEXECDIR} \
 		PORTNAME=${PORTNAME}
 
