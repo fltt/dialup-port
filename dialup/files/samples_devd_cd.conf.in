@@ -1,4 +1,4 @@
-notify 100 {
+notify 200 {
 	match "system" "GEOM";
 	match "subsystem" "DEV";
 	match "type" "CREATE";

@@ -2,7 +2,7 @@
 # D-Link DWM-222 4G LTE USB Adapter
 #
 
-attach 100 {
+attach 200 {
 	match "device-name" "umass[0-9]+";
 	match "vendor" "0x05c6";
 	match "product" "0x9025";
@@ -10,7 +10,7 @@ attach 100 {
 };
 
 # Uncomment the following lines to enable CDC-ECM device instead of the RNDIS default one.
-#notify 100 {
+#notify 200 {
 #	match "system" "USB";
 #	match "subsystem" "DEVICE";
 #	match "type" "ATTACH";
@@ -20,7 +20,7 @@ attach 100 {
 #	action "/usr/sbin/usbconfig -d $ugen set_config 1";
 #};
 
-attach 100 {
+attach 200 {
 	match "device-name" "urndis[0-9]+";
 # Comment the previous line and uncomment the next to register the CDC-ECM device instead of the RNDIS one.
 #	match "device-name" "cdce[0-9]+";

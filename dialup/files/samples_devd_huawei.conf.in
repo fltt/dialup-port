@@ -2,7 +2,7 @@
 # HUAWEI E1752
 #
 
-notify 100 {
+notify 200 {
 	match "system" "USB";
 	match "subsystem" "DEVICE";
 	match "type" "ATTACH";
@@ -12,7 +12,7 @@ notify 100 {
 	action "/sbin/kldload -n u3g";
 };
 
-attach 100 {
+attach 200 {
 	match "device-name" "u3g[0-9]+";
 	match "vendor" "0x12d1";
 	match "product" "0x1001";

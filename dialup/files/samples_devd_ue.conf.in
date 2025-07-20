@@ -1,11 +1,11 @@
-notify 100 {
+notify 200 {
 	match "system" "IFNET";
 	match "subsystem" "ue[0-9]+";
 	match "type" "ATTACH";
 	action "%%LIBEXECDIR%%/devd/attach_ue device $subsystem";
 };
 
-notify 100 {
+notify 200 {
 	match "system" "IFNET";
 	match "subsystem" "ue[0-9]+";
 	match "type" "DETACH";

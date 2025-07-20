@@ -1,5 +1,5 @@
 PORTNAME=	dialup
-DISTVERSION=	1.0.0
+DISTVERSION=	1.0.1
 CATEGORIES=	net-mgmt sysutils
 DISTFILES=
 
